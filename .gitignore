@@ -127,3 +127,8 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+/masker/.vs/masker/v16
+/masker/masker/Scripts
+/masker/masker/pyvenv.cfg
+/masker/masker.pyproj
+/masker/masker.sln
