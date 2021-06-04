@@ -28,9 +28,9 @@
 ## Save volume rendering image for QC - DONE
 ## Find face - DONE
 ## Save face location image for QC - DONE
-## Add mask
-## Save volume rendering image for QC
-## Save masked nifti
+## Add mask - DONE
+## Save volume rendering image for QC - DONE
+## Save masked nifti - DONE
 
 ########################################
 ########################################
@@ -43,6 +43,7 @@ from PIL import Image, ImageDraw
 import face_recognition
 from sklearn.cluster import KMeans
 from scipy import spatial
+from scipy.signal import savgol_filter
 
 ## For logging and debugging
 import datetime
@@ -53,7 +54,8 @@ from vtk_volume_rendering import getnumpyrender
 
 ## Set up args
 #fileName = "D:/UAMS/Project_defacer/testdata/cpw/nifti/t1_mpr_sag_iso.nii.gz" # me
-fileName = "D:/UAMS/Project_defacer/testdata/A5/nifti/T1.nii.gz" # me
+#fileName = "D:/UAMS/Project_defacer/testdata/A5/nifti/T1.nii.gz" # subject A5
+fileName = "D:/UAMS/Project_defacer/testdata/A8/A8T1.nii.gz" # subject A8
 outputDir = "D:/UAMS/Project_defacer/masker_test_output"
 modality = "T1"
 azimuth = 90
@@ -75,7 +77,7 @@ im.save(outputDir+"/volumerendering_b4_"+str(azimuth)+"_roll"+str(rolls)+".png")
 ## Pass in volume rendering to facial recognition package and return face bounding box
 face_locations=face_recognition.face_locations(arr, number_of_times_to_upsample=0, model="cnn") # using deep learning
 
-## If no faces are found, exit gracefully and inform the user
+## If no faces are found, inform the user and exit gracefully 
 if(len(face_locations)==0):
     print("No faces found in the input data")
     sys.exit()
@@ -114,6 +116,25 @@ bk=kmeans.labels_.reshape(narr.shape)
 ## Output binary nifti file if desired
 pair_img = nib.Nifti1Pair(bk,nibfile.affine,header=nibfile.header)
 nib.save(pair_img, outputDir+"/bk.nii.gz")
+
+## Object to store the first non-zero voxel; this is the surface of the face
+for i in range(0,bk.shape[2]): # from left to right
+    surfacevoxels=[]
+    for j in range(0,bk.shape[1]): # from top to bottom
+        surfacevoxels.append(bk.shape[1]-1)
+        nonzeros=[k for k, x in enumerate(bk[:,j,i]) if x == subject ] # these are nonzero stacks
+        if(len(nonzeros)!=0):
+            firstnonzero=nonzeros[0]
+            surfacevoxels[j]=firstnonzero
+    ## Smooth the binary volume, then go back and backfill stacks of voxels
+    smoothedvoxels = savgol_filter(surfacevoxels, 41, 2) # window size 41, polynomial order 2
+    smoothedvoxels=np.clip(np.round(smoothedvoxels,0),0,bk.shape[1])
+    for j in range(0,bk.shape[1]): # from top to bottom
+        bk[range(int(smoothedvoxels[j]),int(round(bk.shape[1]*0.6,0))),j,i]=subject # fill in voxels from back to front # GO 0.6 of the way down
+
+## Output binary nifti file if desired
+pair_img = nib.Nifti1Pair(bk,nibfile.affine,header=nibfile.header)
+nib.save(pair_img, outputDir+"/bk.smoothed.nii.gz")
 
 ## Create fake voronoi segmentation using kmeans on random data
 ## Ranges between 0 and the dimensions of the real matrix so that the points can be mapped to one another
@@ -205,7 +226,9 @@ for i in range(adj_face_locations[3],adj_face_locations[1]): # from left to righ
             #bk[fillme,j,i] = randvalues # sets range of voxels to random values # using BINARY MAP
             narr[fillme,j,i] = randvalues # sets range of voxels to random values absed # using original data
             
-
+## Final clean up; set any negative voxel to 0 and convert all values back to ints
+narr[narr<0]=0
+narr=narr.astype(int)
 
 #### Here we reorienate the narr data as necessary by rotating it with np.rot90 etc
 ## if necessary using the azimuth and rolls variables; put it back the way it was

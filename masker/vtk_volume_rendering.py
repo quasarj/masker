@@ -6,6 +6,7 @@
 import vtk
 from vtk.util.numpy_support import vtk_to_numpy # For converting vtk renders to numpy arrays
 from PIL import Image # For saving/showing numpy arrays as images
+import numpy as np
 
 
 def getnumpyrender(fileName,viewup,azimuth,roll,voxeldims,modality):
@@ -137,6 +138,9 @@ def getnumpyrender(fileName,viewup,azimuth,roll,voxeldims,modality):
     components = vtk_array.GetNumberOfComponents()
 
     arr = vtk_to_numpy(vtk_array).reshape(height, width, components)
+
+    ## Flip horizontally
+    arr=np.flip(arr,1)
 
     return(arr)
 
