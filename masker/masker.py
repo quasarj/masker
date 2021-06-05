@@ -31,6 +31,14 @@
 ## Add mask - DONE
 ## Save volume rendering image for QC - DONE
 ## Save masked nifti - DONE
+## Tidy up code
+## Push to PyPi and Bioconda
+## Make Dockerfile
+
+## Add input args
+## min/max mask thickness
+## input/output paths
+## modality
 
 ########################################
 ########################################
@@ -44,8 +52,8 @@ import face_recognition
 from sklearn.cluster import KMeans
 from scipy import spatial
 from scipy.signal import savgol_filter
-
-## For logging and debugging
+import argparse
+import logging
 import datetime
 
 ## Local imports
@@ -53,23 +61,40 @@ import datetime
 from vtk_volume_rendering import getnumpyrender
 
 ## Set up args
-#fileName = "D:/UAMS/Project_defacer/testdata/cpw/nifti/t1_mpr_sag_iso.nii.gz" # me
+fileName = "D:/UAMS/Project_defacer/testdata/cpw/nifti/t1_mpr_sag_iso.nii.gz" # me
 #fileName = "D:/UAMS/Project_defacer/testdata/A5/nifti/T1.nii.gz" # subject A5
-fileName = "D:/UAMS/Project_defacer/testdata/A8/A8T1.nii.gz" # subject A8
+#fileName = "D:/UAMS/Project_defacer/testdata/A8/A8T1.nii.gz" # subject A8
 outputDir = "D:/UAMS/Project_defacer/masker_test_output"
 modality = "T1"
 azimuth = 90
 rolls = 0
+minMaskThickness=5
+maxMaskThickness=15
+
+## Set up logging
+logging.basicConfig(level=logging.INFO,format='%(asctime)s %(levelname)s %(message)s',datefmt='%Y-%m-%d %H:%M:%S',filename=outputDir+'/log.txt',filemode='w')
+console = logging.StreamHandler()
+console.setLevel(logging.INFO)
+formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s',datefmt='%Y-%m-%d %H:%M:%S')
+console.setFormatter(formatter)
+logging.getLogger('').addHandler(console)
+
+starttime=datetime.datetime.now()
+logging.info("Start time is: "+str(starttime))
+
 
 ## Load nifti file
+logging.info("Loading NIFTI input file")
 nibfile = nib.load(fileName)
 narr = nibfile.get_fdata()
 
 ## Create a volume rendering of the input file
+logging.info("Creating volume rendering of input")
 arr=getnumpyrender(fileName,[0,0,-1],azimuth,90,narr.shape,modality) # CORRECT FOR MY HEAD EXAMPLE; face on
 arr=np.rot90(arr,k=rolls)
 
 ## Create and save a PNG fo the volume rendering 
+logging.info("Writing image of volume rendering of input")
 im=Image.fromarray(arr)
 im.save(outputDir+"/volumerendering_b4_"+str(azimuth)+"_roll"+str(rolls)+".png")
 #im.show() # uncomment this for the file to open in Explorer
@@ -80,6 +105,7 @@ face_locations=face_recognition.face_locations(arr, number_of_times_to_upsample=
 ## If no faces are found, inform the user and exit gracefully 
 if(len(face_locations)==0):
     print("No faces found in the input data")
+    logging.info("No faces found in the input data; exiting")
     sys.exit()
 else:
     top, right, bottom, left = face_locations[0]
@@ -87,17 +113,13 @@ else:
 # Draw a box around the detected face and output an image
 draw = ImageDraw.Draw(im)
 draw.rectangle(((left, top), (right, bottom)), outline=(255, 0, 0))
+logging.info("Writing image of face location in volume rendering of input")
 im.save(outputDir+"/volumerendering_b4_box_"+str(azimuth)+"_roll"+str(rolls)+".png")
 
 ## Generate kmeans clustering of numpy image array; note we reshape the array
 ## This can't be sped up by using only unique values; it would shift the centers of the clusters
-#startkmeans=datetime.datetime.now()
+logging.info("Binarizing input data")
 kmeans = KMeans(n_clusters=2,random_state=666,algorithm="full").fit(narr.reshape(-1,1))
-#endkmeans=datetime.datetime.now()
-#print(kmeans.n_iter_)
-#print(kmeans.cluster_centers_)
-#print("Total time taken: "+str(endkmeans-startkmeans))
-
 
 ## Determine which label is background; this is assigned to the cluster with the lower center
 if( float(kmeans.cluster_centers_[[0]]) < float(kmeans.cluster_centers_[[1]]) ):
@@ -106,6 +128,7 @@ else:
     background,subject = 1,0
 
 ## Calculate median value of all subject voxels so we can mask with similar noise later
+logging.info("Calculating mean and SD of input voxels")
 subjectmean=np.mean(narr.reshape(-1,1)[np.where(kmeans.labels_==subject)])
 subjectstd=np.std(narr.reshape(-1,1)[np.where(kmeans.labels_==subject)])
 
@@ -114,10 +137,12 @@ subjectstd=np.std(narr.reshape(-1,1)[np.where(kmeans.labels_==subject)])
 bk=kmeans.labels_.reshape(narr.shape)
 
 ## Output binary nifti file if desired
+logging.info("Writing binarized NIFTI file")
 pair_img = nib.Nifti1Pair(bk,nibfile.affine,header=nibfile.header)
 nib.save(pair_img, outputDir+"/bk.nii.gz")
 
 ## Object to store the first non-zero voxel; this is the surface of the face
+logging.info("Smoothing surface of binarized data")
 for i in range(0,bk.shape[2]): # from left to right
     surfacevoxels=[]
     for j in range(0,bk.shape[1]): # from top to bottom
@@ -130,14 +155,16 @@ for i in range(0,bk.shape[2]): # from left to right
     smoothedvoxels = savgol_filter(surfacevoxels, 41, 2) # window size 41, polynomial order 2
     smoothedvoxels=np.clip(np.round(smoothedvoxels,0),0,bk.shape[1])
     for j in range(0,bk.shape[1]): # from top to bottom
-        bk[range(int(smoothedvoxels[j]),int(round(bk.shape[1]*0.6,0))),j,i]=subject # fill in voxels from back to front # GO 0.6 of the way down
+        bk[range(int(smoothedvoxels[j]),int(round(bk.shape[1]*0.6,0))),j,i]=subject # fill in voxels from back to front and go 60% of the way down
 
 ## Output binary nifti file if desired
+logging.info("Writing smoothed binarized NIFTI file")
 pair_img = nib.Nifti1Pair(bk,nibfile.affine,header=nibfile.header)
 nib.save(pair_img, outputDir+"/bk.smoothed.nii.gz")
 
 ## Create fake voronoi segmentation using kmeans on random data
 ## Ranges between 0 and the dimensions of the real matrix so that the points can be mapped to one another
+logging.info("Creating Voronoi tesselation")
 vdatax=np.random.uniform(0,narr.shape[2],10000)
 vdatay=np.random.uniform(0,narr.shape[1],10000)
 vdata=np.column_stack((vdatax,vdatay))
@@ -160,6 +187,7 @@ nearestindex=nearest_neighbour(matrixcoords,vdata)
 ## Set voronoi cluster height and depth;
 ## Determine highest point in each voronoi patch; 
 ## One for every cluster, set to last voxel of stack
+logging.info("Locating surface of face")
 localpeak=np.ones(clusters,int)*narr.shape[0]
 ## Iterate through the binary kmeans array using the face window as the edges
 ## We must consider viewup, azimuth and roll to determine the direction we iterate from
@@ -181,13 +209,15 @@ for i in range(0,narr.shape[2]): # from left to right
                 localpeak[thiscluster]=firstnonzero
 
 ## This is how far the clusters will be extended above the current surface
-## 1 to 5 voxels above the maximum height of any cluster
-clusterdepth=np.random.randint(1,6,clusters)
+## minMaskThickness to maxMaskThickness voxels above the maximum height of any cluster
+logging.info("Assigning mask thickness for each Voronoi cell")
+clusterdepth=np.random.randint(minMaskThickness,maxMaskThickness+1,clusters)
 for i in range(0,len(localpeak)):
     localpeak[i]=max(0,localpeak[i]-clusterdepth[i])
 
 ## Correct face locations; pixel coordinates for arr may not be the same as voxel dimensions
 ## for narr due to non-isometric voxels
+logging.info("Converting face image coordinates to NIFTI image coordinates")
 xscale=narr.shape[2]/arr.shape[1]
 yscale=narr.shape[1]/arr.shape[0]
 
@@ -202,6 +232,7 @@ adj_face_locations[2]=int(face_locations[0][2]*yscale) # down
 
 ## Iterate through the binary kmeans array using the face window as the edges
 ## We must consider viewup, azimuth and roll to determine the direction we iterate from
+logging.info("Building mask")
 #for i in range(0,narr.shape[2]): # from left to right
 #for i in range(face_locations[0][3],face_locations[0][1]): # from left to right
 for i in range(adj_face_locations[3],adj_face_locations[1]): # from left to right
@@ -254,6 +285,7 @@ narr=narr.astype(int)
 
 ## Write results to file
 ## MUST USE ORIGINAL AFFINE MATRIX FROM INPUT FILE
+logging.info("Writing masked NIFTI file")
 pair_img = nib.Nifti1Pair(narr,nibfile.affine,header=nibfile.header)
 outputfile = outputDir+"/masked.nii.gz"
 nib.save(pair_img, outputfile)
@@ -263,7 +295,13 @@ arr=getnumpyrender(outputfile,[0,0,-1],azimuth,90,narr.shape,modality)
 arr=np.rot90(arr,k=rolls)
 
 ## Create and save a PNG fo the volume rendering 
+logging.info("Creating volume rendering of output")
 im=Image.fromarray(arr)
+logging.info("Writing image of masked volume rendering output")
 im.save(outputDir+"/masked"+str(azimuth)+"_roll"+str(rolls)+".png")
+
+endtime=datetime.datetime.now()
+logging.info("End time is: "+str(endtime))
+logging.info("Total time taken: "+str(endtime-starttime))
 
 exit()
