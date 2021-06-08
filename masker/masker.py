@@ -35,6 +35,10 @@
 ## Push to PyPi and Bioconda
 ## Make Dockerfile
 
+## Smoothing window width should be proportional to resolution
+## Mask depth should be proportional to resolution
+## Mask depth should not exceed volume; will this cause an error?  e.g. mask depth = 100?
+
 ## Add input args
 ## min/max mask thickness
 ## input/output paths
@@ -45,6 +49,7 @@
 ########################################
 
 ## Import packages
+import sys
 import nibabel as nib
 import numpy as np
 from PIL import Image, ImageDraw
@@ -64,12 +69,16 @@ from vtk_volume_rendering import getnumpyrender
 fileName = "D:/UAMS/Project_defacer/testdata/cpw/nifti/t1_mpr_sag_iso.nii.gz" # me
 #fileName = "D:/UAMS/Project_defacer/testdata/A5/nifti/T1.nii.gz" # subject A5
 #fileName = "D:/UAMS/Project_defacer/testdata/A8/A8T1.nii.gz" # subject A8
+#fileName = "D:/UAMS/Project_defacer/testdata/A2/T1.nii.gz" # subject A1
+#fileName = "D:/UAMS/Project_defacer/testdata/A2/CT1.nii.gz" # subject A1
+#fileName = "D:/UAMS/Project_defacer/testdata/A2/T2.nii.gz" # subject A1
+#fileName = "D:/UAMS/Project_defacer/testdata/A2/FLAIR.nii.gz" # subject A1
 outputDir = "D:/UAMS/Project_defacer/masker_test_output"
 modality = "T1"
 azimuth = 90
 rolls = 0
-minMaskThickness=5
-maxMaskThickness=15
+minMaskThickness=1
+maxMaskThickness=5
 
 ## Set up logging
 logging.basicConfig(level=logging.INFO,format='%(asctime)s %(levelname)s %(message)s',datefmt='%Y-%m-%d %H:%M:%S',filename=outputDir+'/log.txt',filemode='w')
@@ -82,16 +91,38 @@ logging.getLogger('').addHandler(console)
 starttime=datetime.datetime.now()
 logging.info("Start time is: "+str(starttime))
 
-
 ## Load nifti file
 logging.info("Loading NIFTI input file")
 nibfile = nib.load(fileName)
 narr = nibfile.get_fdata()
 
+## Get orientation of data
+orientation = nib.aff2axcodes(nibfile.affine)
+ostring=''.join(orientation)
+logging.info("Detected image orientation: "+ostring)
+
+## Left-right axis
+LR = ostring.find("R")
+if LR == -1:
+    LR = ostring.find("L")
+## Superior-inferior axis
+SI = ostring.find("I")
+if SI == -1:
+    SI = ostring.find("S")
+## Posterior-anterior axis
+PA = ostring.find("P")
+if PA == -1:
+    PA = ostring.find("A")
+
 ## Create a volume rendering of the input file
 logging.info("Creating volume rendering of input")
-arr=getnumpyrender(fileName,[0,0,-1],azimuth,90,narr.shape,modality) # CORRECT FOR MY HEAD EXAMPLE; face on
-arr=np.rot90(arr,k=rolls)
+minvoxel=np.min(narr)
+maxvoxel=np.max(narr)
+if ostring == "PIR":
+    arr=getnumpyrender(fileName,[0,0,-1],azimuth,90,narr.shape,modality,minvoxel,maxvoxel) # T1 orientation; face on
+if ostring == "LPS":
+    arr=getnumpyrender(fileName,[0,0,-1],0,90,narr.shape,modality,minvoxel,maxvoxel) # T2 orientation; face on
+    arr=np.rot90(arr,k=3)
 
 ## Create and save a PNG fo the volume rendering 
 logging.info("Writing image of volume rendering of input")
@@ -104,7 +135,6 @@ face_locations=face_recognition.face_locations(arr, number_of_times_to_upsample=
 
 ## If no faces are found, inform the user and exit gracefully 
 if(len(face_locations)==0):
-    print("No faces found in the input data")
     logging.info("No faces found in the input data; exiting")
     sys.exit()
 else:
@@ -165,11 +195,12 @@ nib.save(pair_img, outputDir+"/bk.smoothed.nii.gz")
 ## Create fake voronoi segmentation using kmeans on random data
 ## Ranges between 0 and the dimensions of the real matrix so that the points can be mapped to one another
 logging.info("Creating Voronoi tesselation")
-vdatax=np.random.uniform(0,narr.shape[2],10000)
-vdatay=np.random.uniform(0,narr.shape[1],10000)
+#vdatax=np.random.uniform(0,narr.shape[2],10000)
+vdatax=np.random.uniform(0,narr.shape[LR],10000)
+vdatay=np.random.uniform(0,narr.shape[SI],10000)
 vdata=np.column_stack((vdatax,vdatay))
 ## Number of clusters; 300 is ok for head, 600 for body, but we use the max dimensions of the input... maybe make this an option for users?
-clusters=max(narr.shape)
+clusters=np.max(narr.shape)
 vkmeans = KMeans(n_clusters=clusters,random_state=0).fit(vdata)
 vlabels=vkmeans.labels_
 
@@ -213,7 +244,7 @@ for i in range(0,narr.shape[2]): # from left to right
 logging.info("Assigning mask thickness for each Voronoi cell")
 clusterdepth=np.random.randint(minMaskThickness,maxMaskThickness+1,clusters)
 for i in range(0,len(localpeak)):
-    localpeak[i]=max(0,localpeak[i]-clusterdepth[i])
+    localpeak[i]=max(0,(localpeak[i]-clusterdepth[i]))
 
 ## Correct face locations; pixel coordinates for arr may not be the same as voxel dimensions
 ## for narr due to non-isometric voxels
@@ -291,8 +322,11 @@ outputfile = outputDir+"/masked.nii.gz"
 nib.save(pair_img, outputfile)
 
 ## Create a volume rendering of the output file
-arr=getnumpyrender(outputfile,[0,0,-1],azimuth,90,narr.shape,modality) 
-arr=np.rot90(arr,k=rolls)
+if ostring == "PIR":
+    arr=getnumpyrender(outputfile,[0,0,-1],azimuth,90,narr.shape,modality,minvoxel,maxvoxel) 
+if ostring == "LPS":
+    arr=getnumpyrender(outputfile,[0,0,-1],0,90,narr.shape,modality,minvoxel,maxvoxel) # T2 orientation; face on
+    arr=np.rot90(arr,k=3)
 
 ## Create and save a PNG fo the volume rendering 
 logging.info("Creating volume rendering of output")

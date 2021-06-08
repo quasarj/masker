@@ -9,7 +9,7 @@ from PIL import Image # For saving/showing numpy arrays as images
 import numpy as np
 
 
-def getnumpyrender(fileName,viewup,azimuth,roll,voxeldims,modality):
+def getnumpyrender(fileName,viewup,azimuth,roll,voxeldims,modality,minvoxel,maxvoxel):
 
     ## Set up colors       
     colors = vtk.vtkNamedColors()
@@ -40,10 +40,14 @@ def getnumpyrender(fileName,viewup,azimuth,roll,voxeldims,modality):
     # it's a stepwise function so you need to set multiple values
     volumeScalarOpacity = vtk.vtkPiecewiseFunction()
 
-    if(modality=="T1"):
-        volumeScalarOpacity.AddPoint(0, 0.00) # good for T1
-        volumeScalarOpacity.AddPoint(1000, 1) # good for T1
+    #if(modality=="T1"):
+        #volumeScalarOpacity.AddPoint(0, 0.00) # good for T1
+        #volumeScalarOpacity.AddPoint(1000, 1) # good for T1
 
+
+    volumeScalarOpacity.AddPoint(minvoxel, 0.00) # good for T1
+    volumeScalarOpacity.AddPoint(maxvoxel, 1) # good for T1
+    
     if(modality=="CT"):
         volumeScalarOpacity.AddPoint(-800, 0.00) # good for CT
         volumeScalarOpacity.AddPoint(-200, 1) # good for CT
