@@ -32,6 +32,17 @@ narr = nibfile.get_fdata()
 nib.aff2axcodes(nibfile.affine)
 narr.shape
 
+nib.affines.voxel_sizes(nibfile.affine)
+
+x=slice(narr.shape[0])
+
+
+
+narr[x,1,1]==narr[:,1,1]
+
+narr[:,1,1]
+narr[[x,1,1]]
+
 #def getnumpyrender(fileName,viewup,azimuth,roll,voxeldims,modality):
 #fileName
 #viewup # [0,0,-1]

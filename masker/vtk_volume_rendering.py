@@ -77,7 +77,7 @@ def getnumpyrender(fileName,viewup,azimuth,roll,voxeldims,modality,minvoxel,maxv
     # patient's left (which is our right).
     camera = ren.GetActiveCamera()
     c = volume.GetCenter()
-
+        
     camera.SetViewUp(viewup) # this flips which way is up; this is what azimuth rotates around
 
     #if(roll == 90 or roll == 270):
@@ -113,12 +113,12 @@ def getnumpyrender(fileName,viewup,azimuth,roll,voxeldims,modality,minvoxel,maxv
 
     # Set the size of the render window
     if(roll == 90 or roll == 270):
-        renWin.SetSize(round(c[2]*2)+1, round(c[0]*2)+1) # Renders image at exact size of original pixel dimensions
+        renWin.SetSize(round(c[2]*2)+1, round(c[0]*2)+1) # Renders image at exact size of original mm dimensions
         #voxeldims
-        #renWin.SetSize(voxeldims[2], voxeldims[1]) # Renders image at exact size of original pixel dimensions
+        #renWin.SetSize(voxeldims[2], voxeldims[1]) # Renders image at exact size of original mm dimensions
         camera.SetParallelScale(c[1])  ## Set this to same value as center; image fills entire render window
     else:
-        renWin.SetSize(round(c[0]*2)+1, round(c[2]*2)+1) # Renders image at exact size of original pixel dimensions
+        renWin.SetSize(round(c[0]*2)+1, round(c[2]*2)+1) # Renders image at exact size of original mm dimensions
         #renWin.SetSize(voxeldims[1], voxeldims[2]) # Renders image at exact size of original pixel dimensions
         camera.SetParallelScale(c[2])  ## Set this to same value as center; image fills entire render window
 
@@ -138,6 +138,10 @@ def getnumpyrender(fileName,viewup,azimuth,roll,voxeldims,modality,minvoxel,maxv
     vtk_image = vtk_win_im.GetOutput()
 
     width, height, _ = vtk_image.GetDimensions()
+
+    #print("width "+str(width))
+    #print("height "+str(height))
+
     vtk_array = vtk_image.GetPointData().GetScalars()
     components = vtk_array.GetNumberOfComponents()
 
