@@ -44,13 +44,12 @@ def getnumpyrender(fileName,viewup,azimuth,roll,voxeldims,modality,minvoxel,maxv
         #volumeScalarOpacity.AddPoint(0, 0.00) # good for T1
         #volumeScalarOpacity.AddPoint(1000, 1) # good for T1
 
-
     volumeScalarOpacity.AddPoint(minvoxel, 0.00) # good for T1
     volumeScalarOpacity.AddPoint(maxvoxel, 1) # good for T1
     
-    if(modality=="CT"):
-        volumeScalarOpacity.AddPoint(-800, 0.00) # good for CT
-        volumeScalarOpacity.AddPoint(-200, 1) # good for CT
+    #if(modality=="CT"):
+    #    volumeScalarOpacity.AddPoint(-800, 0.00) # good for CT
+    #    volumeScalarOpacity.AddPoint(-200, 1) # good for CT
     
     # The VolumeProperty attaches the color and opacity functions to the
     # volume, and sets other volume properties

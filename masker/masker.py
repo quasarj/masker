@@ -18,7 +18,7 @@
 ## Author: CP Wardell
 ## Description: Anonymizes medical imaging data by detecting and obscuring faces
 ## Takes a NIFTI file, creates a volume rendering and detects faces 
-## Designed and tested for MRI, will be extended to support CT data
+## Designed and tested for MRI, extended to support CT data
 
 ########################################
 ## Things to make and do - pseudocode ##
@@ -66,8 +66,12 @@ def main():
 
     ## Gather command line args
     # Example args: -i D:/UAMS/Project_defacer/testdata/cpw/nifti/t1_mpr_sag_iso.nii.gz -o D:/UAMS/Project_defacer/masker_test_output -m T1
+    # Example args: -i D:/UAMS/Project_defacer/testdata/cpw/nifti/t1_mpr_sag_iso.nii.gz -o D:/UAMS/Project_defacer/masker_test_output -m T1 --facewindow 83 220 7 20
     # Example args: -i D:/UAMS/Project_defacer/testdata/A2/T2.nii.gz -o D:/UAMS/Project_defacer/masker_test_output -m T2 --facewindow 10 150 40 180 # complete face
     # Example args: -i D:/UAMS/Project_defacer/testdata/A2/FLAIR.nii.gz -o D:/UAMS/Project_defacer/masker_test_output -m FLAIR --facewindow 10 150 40 180
+    # Example args: -i D:/UAMS/Project_defacer/testdata/CT/863963.nii.gz -o D:/UAMS/Project_defacer/masker_test_output -m CT
+    # Example args: -i D:/UAMS/Project_defacer/testdata/CT/211009.nii.gz -o D:/UAMS/Project_defacer/masker_test_output -m CT
+    # Example args: -i D:/UAMS/Project_defacer/testdata/CT/1668142.nii.gz -o D:/UAMS/Project_defacer/masker_test_output -m CT
     ## Create a new argparse class that will print the help message by default
     class MyParser(argparse.ArgumentParser):
         def error(self, message):
@@ -130,8 +134,8 @@ def main():
     logging.info("Input file is: "+str(fileName))
     logging.info("Output directory is: "+str(outputDir))
     logging.info("Image modality is: "+str(modality))
-    logging.info("Minimum mask thickness is: "+str(minMaskThickness))
-    logging.info("Maximum mask thickness is: "+str(maxMaskThickness))
+    logging.info("Minimum mask thickness in voxels is: "+str(minMaskThickness))
+    logging.info("Maximum mask thickness in voxels is: "+str(maxMaskThickness))
         
     ## Load nifti file
     logging.info("Loading NIFTI input file")
@@ -218,6 +222,28 @@ def main():
 
     
 
+    ## Correct face locations; pixel coordinates for arr will not be the same as voxel dimensions
+    ## unless voxels are exactly 1mm
+    logging.info("Converting face image coordinates to NIFTI image coordinates")
+    xscale=narr.shape[LR]/arr.shape[1]
+    yscale=narr.shape[SI]/arr.shape[0]
+
+    adj_face_locations=[0,0,0,0]
+    if("R" in ostring):
+        adj_face_locations[3]=narr.shape[LR]-int(faceright*xscale) # right
+        adj_face_locations[1]=narr.shape[LR]-int(faceleft*xscale) # left
+    if("L" in ostring):
+        adj_face_locations[1]=int(faceright*xscale) # right
+        adj_face_locations[3]=int(faceleft*xscale) # left
+    
+    if("I" in ostring):
+        adj_face_locations[0]=int(facetop*yscale) # top
+        adj_face_locations[2]=int(facebottom*yscale) # bottom
+    if("S" in ostring):
+        adj_face_locations[2]=narr.shape[SI]-int(facetop*yscale) # top
+        adj_face_locations[0]=narr.shape[SI]-int(facebottom*yscale) # bottom
+
+    #sys.exit()
 
     ### NEW RETINAFACE SYSTEM
     #from retinaface import RetinaFace
@@ -327,7 +353,10 @@ def main():
     vdata=np.column_stack((vdatax,vdatay))
     ## Number of voronoi clusters; set to average of face width and height
     #clusters=np.max(narr.shape) # works fine
-    clusters=int(round(np.mean([abs(facebottom-facetop),abs(faceleft-faceright)]),0)) 
+    #clusters=np.min([arr.shape[0],arr.shape[1]]) 
+    clusters=np.max(arr.shape)
+    #clusters=int(round(np.mean([abs(facebottom-facetop),abs(faceleft-faceright)]),0)) 
+    logging.info("Voronoi tesselation will use "+str(clusters)+" clusters")
     vkmeans = KMeans(n_clusters=clusters,random_state=0).fit(vdata)
     vlabels=vkmeans.labels_
 
@@ -349,9 +378,12 @@ def main():
     localpeak=np.ones(clusters,int)*narr.shape[PA]
     ## Iterate through the binary kmeans array using the face window as the edges
     ## We must consider viewup, azimuth and roll to determine the direction we iterate from
-    for i in range(0,narr.shape[LR]): # from left to right
+    #for i in range(0,narr.shape[LR]): # from left to right # ORIGINAL
+    for i in range(adj_face_locations[3],adj_face_locations[1]): # from left to right
+    #for i in range(narr.shape[LR],0): 
     #for i in range(adj_face_locations[3],adj_face_locations[1]): # from left to right
-        for j in range(0,narr.shape[SI]): # from top to bottom
+        for j in range(adj_face_locations[0],adj_face_locations[2]): # from top to bottom
+        #for j in range(0,narr.shape[SI]): # from top to bottom # ORIGINAL
         #for j in range(adj_face_locations[0],adj_face_locations[2]): # from top to bottom
             #for k in range(0,narr.shape[2]): # from front to back
             slots=[0,0,0]
@@ -371,6 +403,7 @@ def main():
                 if(firstnonzero<localpeak[thiscluster]):
                     localpeak[thiscluster]=firstnonzero
 
+    
     ## This is how far the clusters will be extended above the current surface
     ## minMaskThickness to maxMaskThickness voxels above the maximum height of any cluster
     logging.info("Assigning mask thickness for each Voronoi cell")
@@ -378,18 +411,7 @@ def main():
     for i in range(0,len(localpeak)):
         localpeak[i]=max(0,(localpeak[i]-clusterdepth[i]))
 
-    ## Correct face locations; pixel coordinates for arr may not be the same as voxel dimensions
-    ## for narr due to non-isometric voxels
-    logging.info("Converting face image coordinates to NIFTI image coordinates")
-    xscale=narr.shape[LR]/arr.shape[1]
-    yscale=narr.shape[SI]/arr.shape[0]
-
-    adj_face_locations=[0,0,0,0]
-    adj_face_locations[1]=int(faceright*xscale) # right
-    adj_face_locations[3]=int(faceleft*xscale) # left
-    adj_face_locations[0]=int(facetop*yscale) # top
-    adj_face_locations[2]=int(facebottom*yscale) # bottom
-
+        
     ## Do not allow the mask to be deeper than the width of the face
     #maxdepth=abs(adj_face_locations[1]-adj_face_locations[3])
 
@@ -399,6 +421,7 @@ def main():
     #for i in range(0,narr.shape[2]): # from left to right
     #for i in range(face_locations[0][3],face_locations[0][1]): # from left to right
     for i in range(adj_face_locations[3],adj_face_locations[1]): # from left to right
+    #for i in range(adj_face_locations[1],adj_face_locations[3]): # from right to left
     #    for j in range(0,narr.shape[1]): # from top to bottom
          #for j in range(face_locations[0][0],face_locations[0][2]): # from top to bottom
          for j in range(adj_face_locations[0],adj_face_locations[2]): # from top to bottom
@@ -422,6 +445,7 @@ def main():
                     nonzeros[0] = localpeak[thiscluster]+round(narr.shape[PA]*0.15)
                 fillme=range(localpeak[thiscluster],nonzeros[0]) 
                 randvalues=np.random.normal(subjectmean,subjectstd,len(fillme)) # random values based on non-background voxels
+                randvalues=list(map(abs,randvalues)) # this may introduce negative values, so we make them all positive
                 #bk[fillme,j,i] = randvalues # sets range of voxels to random values # using BINARY MAP
                 slots=[0,0,0]
                 slots[LR]=i
@@ -431,7 +455,9 @@ def main():
                 narr[tuple(slots)] = randvalues # sets range of voxels to random values absed # using original data
             
     ## Final clean up; set any negative voxel to 0 and convert all values back to ints
-    narr[narr<0]=0
+    ## MRI images never have voxels less than zero
+    #if(modality != "CT"):
+    #    narr[narr<0]=0
     narr=narr.astype(int)
 
     #### Here we reorienate the narr data as necessary by rotating it with np.rot90 etc
