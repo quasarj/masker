@@ -134,3 +134,4 @@ dmypy.json
 /masker/masker.sln
 /masker/masker/share/man/man1/isympy.1
 /masker/masker/share/man/man1
+/masker/haarcascade_frontalface_default.xml

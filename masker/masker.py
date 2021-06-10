@@ -31,9 +31,9 @@
 ## Add mask - DONE
 ## Save volume rendering image for QC - DONE
 ## Save masked nifti - DONE
-## Need manual override for face detection - DO NOT ALLOW FACEWINDOW TO EXCEED DIMENSIONS OF IMAGE
-## CALCULATE SAVGOL FILTER WINDOW SIZE; never exceed dimensions of image
-## Make number of Voronoi cells appropriate to each image size
+## Need manual override for face detection - DO NOT ALLOW FACEWINDOW TO EXCEED DIMENSIONS OF IMAGE - DONE
+## CALCULATE SAVGOL FILTER WINDOW SIZE; never exceed dimensions of image - DONE
+## Make number of Voronoi cells appropriate to each image size - DONE
 ## Tidy up code
 ## Push to PyPi and Bioconda
 ## Make Dockerfile
@@ -67,7 +67,7 @@ def main():
     ## Gather command line args
     # Example args: -i D:/UAMS/Project_defacer/testdata/cpw/nifti/t1_mpr_sag_iso.nii.gz -o D:/UAMS/Project_defacer/masker_test_output -m T1
     # Example args: -i D:/UAMS/Project_defacer/testdata/A2/T2.nii.gz -o D:/UAMS/Project_defacer/masker_test_output -m T2 --facewindow 10 150 40 180 # complete face
-    # Example args: -i D:/UAMS/Project_defacer/testdata/A2/T2.nii.gz -o D:/UAMS/Project_defacer/masker_test_output -m T2 --facewindow 60 100 100 120
+    # Example args: -i D:/UAMS/Project_defacer/testdata/A2/FLAIR.nii.gz -o D:/UAMS/Project_defacer/masker_test_output -m FLAIR --facewindow 10 150 40 180
     ## Create a new argparse class that will print the help message by default
     class MyParser(argparse.ArgumentParser):
         def error(self, message):
@@ -79,7 +79,7 @@ def main():
     parser.add_argument("-o", type=str, help="path to input output directory", required=True)
     parser.add_argument("-m", type=str, help="Image modality (T1,T2,FLAIR)", required=True)
     parser.add_argument("--maskthickness", type=int, help="Minimum and maximum mask depth in voxels", required=False, default=[3,7], nargs=2)
-    parser.add_argument("--facewindow", type=int, help="Manual override to create masking window over face; top, bottom, left, right", required=False, default=[0,0,0,0], nargs=4)
+    parser.add_argument("--facewindow", type=int, help="Manual override to create masking window over face (in mm); top, bottom, left, right", required=False, default=[0,0,0,0], nargs=4)
     args=parser.parse_args()
 
     ## Turn arguments into a nice string for printing
@@ -167,7 +167,20 @@ def main():
     logging.info("SI dimension: " + str(narr.shape[SI]) + " " + str(np.round(vsizeSI,1)) + " mm voxels, total height " + str(np.round(vsizeSI*narr.shape[SI],1)) + " mm")
     logging.info("PA dimension: " + str(narr.shape[PA]) + " " + str(np.round(vsizePA,1)) + " mm voxels, total depth " + str(np.round(vsizePA*narr.shape[PA],1)) + " mm")
 
-    #sys.exit()
+    ## Check that facewindow (if set) doesn't exceed maximum dimensions
+    if(args.facewindow != [0,0,0,0]):
+        if(args.facewindow[0] < 0):
+            logging.info("Top component of facewindow is outside plotting area; exiting")
+            sys.exit()
+        if(args.facewindow[2] < 0):
+            logging.info("Left component of facewindow is outside plotting area; exiting")
+            sys.exit()
+        if(args.facewindow[1] > (np.round(vsizeSI*narr.shape[SI],1))):
+            logging.info("Bottom component of facewindow is outside plotting area; exiting")
+            sys.exit()
+        if(args.facewindow[3] > (np.round(vsizeLR*narr.shape[LR],1))):
+            logging.info("Right component of facewindow is outside plotting area; exiting")
+            sys.exit()
 
     ## Create a volume rendering of the input file
     logging.info("Creating volume rendering of input")
@@ -203,6 +216,29 @@ def main():
     logging.info("Writing image of face location in volume rendering of input")
     im.save(outputDir+"/volumerendering_b4_box_.png")
 
+    
+
+
+    ### NEW RETINAFACE SYSTEM
+    #from retinaface import RetinaFace
+    #filename = "D:/UAMS/Project_defacer/masker_test_output/price-vincent-03-g.jpg"
+    #facefilename = outputDir+"/volumerendering_b4_.png"
+    #filename = "D:/UAMS/Project_defacer/masker_test_output/volumerendering_b4_T2.png"
+    #filename = "D:/UAMS/Project_defacer/masker_test_output/volumerendering_b4_FLAIR.png"
+    #faces=RetinaFace.detect_faces(facefilename,threshold=0.001)
+    #print(len(faces))
+    #print(faces["face_1"])
+    #faceleft = faces["face_1"]["facial_area"][0]
+    #facetop = faces["face_1"]["facial_area"][1]
+    #faceright = faces["face_1"]["facial_area"][2]
+    #facebottom = faces["face_1"]["facial_area"][3]
+
+    # Draw a box around the detected face and output an image
+    #draw = ImageDraw.Draw(im)
+    #draw.rectangle(((faceleft, facetop), (faceright, facebottom)), outline=(255, 0, 0))
+    #logging.info("Writing image of face location in volume rendering of input")
+    #im.save(outputDir+"/volumerendering_b4_box_retina.png")
+
     #sys.exit()
     
     ## Generate kmeans clustering of numpy image array; note we reshape the array
@@ -217,7 +253,7 @@ def main():
         background,subject = 1,0
 
     ## Calculate median value of all subject voxels so we can mask with similar noise later
-    logging.info("Calculating mean and SD of input voxels")
+    logging.info("Calculating mean and SD of subject voxels")
     subjectmean=np.mean(narr.reshape(-1,1)[np.where(kmeans.labels_==subject)])
     subjectstd=np.std(narr.reshape(-1,1)[np.where(kmeans.labels_==subject)])
 
@@ -258,13 +294,14 @@ def main():
                 firstnonzero=nonzeros[0]
                 surfacevoxels[j]=firstnonzero
         ## Smooth the binary volume, then go back and backfill stacks of voxels
-        smoothedvoxels = savgol_filter(surfacevoxels, 11, 2) # window size 41, polynomial order 2
+        ## Decide smoothing window size; MUST be odd
+        savgolwindow=int(np.round(bk.shape[SI]/4,0))
+        if( savgolwindow % 2 == 0):
+            savgolwindow = savgolwindow - 1
+        smoothedvoxels = savgol_filter(surfacevoxels, savgolwindow, 2) # window size SI/4, polynomial order 2
         #smoothedvoxels=np.clip(np.round(smoothedvoxels,0),0,bk.shape[SI]) # ORIGINAL
         #smoothedvoxels=np.clip(np.round(smoothedvoxels,0),background,bk.shape[PA]) # working
         #smoothedvoxels=np.clip(np.round(smoothedvoxels,0),0,bk.shape[PA])
-
-        #print(surfacevoxels)
-        #print(smoothedvoxels)
 
         
         for j in range(0,bk.shape[SI]): # from top to bottom
@@ -288,8 +325,9 @@ def main():
     vdatax=np.random.uniform(0,narr.shape[LR],10000)
     vdatay=np.random.uniform(0,narr.shape[SI],10000)
     vdata=np.column_stack((vdatax,vdatay))
-    ## Number of clusters; 300 is ok for head, 600 for body, but we use the max dimensions of the input... maybe make this an option for users?
-    clusters=np.max(narr.shape)
+    ## Number of voronoi clusters; set to average of face width and height
+    #clusters=np.max(narr.shape) # works fine
+    clusters=int(round(np.mean([abs(facebottom-facetop),abs(faceleft-faceright)]),0)) 
     vkmeans = KMeans(n_clusters=clusters,random_state=0).fit(vdata)
     vlabels=vkmeans.labels_
 
