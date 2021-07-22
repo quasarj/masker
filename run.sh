@@ -13,4 +13,4 @@ export DISPLAY=:1
 	>/dev/null 2>/dev/null &
 
 echo "running with args: $@"
-exec /app/masker/masker.py "$@"
+exec python3 /app/masker/masker.py "$@"
