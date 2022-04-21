@@ -12,7 +12,7 @@ export DISPLAY=:1
 	:1 \
 	>/dev/null 2>/dev/null &
 
-exec python3 -u /face_eater.py $@
+python3 -u /app/masker/test.py
 
 #python3 -u /face_eater.py --defacing_id 86
 # python3 -u /face_eater.py --defacing_id 2

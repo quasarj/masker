@@ -3,3 +3,8 @@ nibabel
 Pillow
 sklearn
 vtk
+requests
+redis
+graypy
+mysql-connector
+pydicom

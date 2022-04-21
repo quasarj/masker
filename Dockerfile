@@ -1,4 +1,4 @@
-FROM python:3
+FROM python:3.8
 
 ENV DEBIAN_FRONTEND noninteractive
 ENV DISPLAY :1
@@ -8,10 +8,13 @@ RUN apt-get update \
 
 
 COPY requirements.txt /
-COPY src /app
 RUN pip install -r /requirements.txt
+COPY src /app
 
 COPY xorg.conf /etc/X11/xorg.conf
 COPY run.sh /run.sh
+COPY run-test.sh /
+COPY face_eater.py /
 
 ENTRYPOINT ["/run.sh"]
+CMD [""]

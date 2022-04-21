@@ -139,3 +139,6 @@ dmypy.json
 
 # manually added
 output/
+tmp/
+.jython_cache/
+*.last_built

@@ -1,0 +1,56 @@
+#!/usr/bin/env python3
+
+# given a series_uid, get all files, place them in a dir, and call dcm2niix
+# then return the resulting nii filename
+
+TEMP_DIR="./tmp"
+
+
+import psycopg2
+import sys
+import os
+import subprocess
+
+
+series = sys.argv[1]
+print("using series: ", series)
+
+conn = psycopg2.connect(dbname="posda_files")
+cur = conn.cursor()
+
+
+# is it axial?
+cur.execute("""\
+select image_type, modality, count(*)
+
+from file_series
+natural join file_image
+natural join image
+where series_instance_uid = %s
+group by image_type, modality
+order by count desc
+limit 1
+""", [series])
+
+# for it, mod, cnt in cur:
+#     image_type = it.split('\\')
+#     if mod == 'CT':
+#         if 'AXIAL' not in image_type:
+#             raise RuntimeError("CT Series is not Axial! get outta here")
+
+cur.execute("""\
+select storage_path(file_id)
+from file_series
+where series_instance_uid = %s
+""", [series])
+
+count = 0
+for filename, in cur:
+    count += 1
+    base = os.path.basename(filename)
+    os.symlink(filename, os.path.join(TEMP_DIR, base))
+
+print(f"symlinked {count} files")
+subprocess.run(["dcm2niix", "-m", "y", "./tmp/"])
+# subprocess.run(["dcm2niix", "./tmp/"])
+conn.close()
